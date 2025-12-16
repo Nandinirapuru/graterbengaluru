@@ -1,0 +1,140 @@
+const express = require('express');
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+const dotenv = require('dotenv');
+const path = require('path');
+
+dotenv.config();
+const app = express();
+const PORT = process.env.PORT || 5433;
+
+// Middleware
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+
+// MongoDB connection
+mongoose.connect(process.env.MONGO_URL, {
+  serverSelectionTimeoutMS: 5000
+})
+.then(() => console.log("MongoDB connected ✅"))
+.catch(err => console.error("MongoDB connection error ❌", err.message));
+
+
+/* =======================
+   USER SCHEMA
+======================= */
+const User = mongoose.model('User', new mongoose.Schema({
+  name: String,
+  email: { type: String, unique: true },
+  password: String
+}));
+
+/* =======================
+   CONTACT SCHEMA
+======================= */
+const Contact = mongoose.model('Contact', new mongoose.Schema({
+  name: String,
+  email: String,
+  phone: String,
+  message: String,
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
+}));
+
+/* =======================
+   ROUTES
+======================= */
+
+// Pages
+app.get('/', (req, res) =>
+  res.sendFile(path.join(__dirname, 'public', 'login.html'))
+);
+
+app.get('/signup', (req, res) =>
+  res.sendFile(path.join(__dirname, 'public', 'signup.html'))
+);
+
+app.get('/dashboard', (req, res) =>
+  res.sendFile(path.join(__dirname, 'public', 'dashboard.html'))
+);
+
+/* =======================
+   SIGNUP
+======================= */
+app.post('/signup', async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.send(`<script>alert("User already exists ❌"); window.history.back();</script>`);
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await User.create({ name, email, password: hashedPassword });
+
+    res.send(`<script>alert("Signup successful ✅"); window.location.href='/';</script>`);
+  } catch (err) {
+    res.send(`<script>alert("Error creating user ❌ ${err.message}"); window.history.back();</script>`);
+  }
+});
+
+/* =======================
+   LOGIN
+======================= */
+app.post('/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.send(`<script>alert("User not found ❌"); window.history.back();</script>`);
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.send(`<script>alert("Invalid password ❌"); window.history.back();</script>`);
+    }
+
+    res.redirect('/dashboard');
+  } catch (err) {
+    res.send(`<script>alert("Login error ❌ ${err.message}"); window.history.back();</script>`);
+  }
+});
+
+/* =======================
+   CONTACT FORM
+======================= */
+
+// Save contact message
+app.post('/contact', async (req, res) => {
+  try {
+    const { name, email, phone, message } = req.body;
+
+    await Contact.create({ name, email, phone, message });
+
+    res.json({ success: true, message: "Message sent successfully ✅" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Failed to send message ❌" });
+  }
+});
+
+// View all messages (admin)
+app.get('/admin/messages', async (req, res) => {
+  try {
+    const messages = await Contact.find().sort({ createdAt: -1 });
+    res.json(messages);
+  } catch (err) {
+    res.status(500).json({ message: "Error fetching messages ❌" });
+  }
+});
+
+/* =======================
+   START SERVER
+======================= */
+app.listen(PORT, () =>
+  console.log(`Server running on http://localhost:${PORT} 🚀`)
+);
